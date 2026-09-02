@@ -111,6 +111,9 @@ fun AACMainScreen(
     val speakOnTileTap by viewModel.speakOnTileTap.collectAsStateWithLifecycle()
     val isGrammarFilterEnabled by viewModel.isGrammarFilterEnabled.collectAsStateWithLifecycle()
     val isFacialTrackingEnabled by viewModel.isFacialTrackingEnabled.collectAsStateWithLifecycle()
+    val isEmotionSortingEnabled by viewModel.isEmotionSortingEnabled.collectAsStateWithLifecycle()
+    val activeEmotion by viewModel.activeEmotion.collectAsStateWithLifecycle()
+    val manualEmotion by viewModel.manualEmotionOverride.collectAsStateWithLifecycle()
 
     // Dialog state controllers
     var isEditMode by remember { mutableStateOf(false) }
@@ -596,8 +599,56 @@ fun AACMainScreen(
 
         // --- 5. Fluid Grid Layout ---
         val boardButtons = PresetBoards.deserializeButtons(currentBoard.buttonsJson)
-        val visibleButtons = if (isEditMode) boardButtons else boardButtons.filter { !it.isHidden }
+        val filteredButtons = if (isEditMode) boardButtons else boardButtons.filter { !it.isHidden }
+        val visibleButtons = if (isEditMode) filteredButtons else viewModel.sortButtonsByEmotion(filteredButtons, activeEmotion)
         val finalColumns = if (isSimpleDensity) 3 else 4
+
+        if (!isEditMode && isEmotionSortingEnabled && activeEmotion != "neutral") {
+            val emotionLabel = when (activeEmotion) {
+                "happy" -> "😊 Happy (Prioritizing positive, social & play words)"
+                "sad" -> "😢 Sad (Prioritizing comfort, help & feelings)"
+                "angry" -> "😠 Frustrated (Prioritizing needs, stop & expressions)"
+                "fearful" -> "😨 Fearful (Prioritizing safety, help & family)"
+                "disgusted" -> "😣 Discomfort (Prioritizing needs, body & break)"
+                "surprised" -> "😲 Surprised (Prioritizing curiosity & exciting words)"
+                else -> activeEmotion
+            }
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = Color(0xFFEEF2FF),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC7D2FE)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("✨ Emotion Relevance: ", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4F46E5))
+                        Text(emotionLabel, fontSize = 11.sp, color = Color(0xFF3730A3), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Text(
+                        text = "Reset",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6366F1),
+                        modifier = Modifier
+                            .clickable {
+                                viewModel.setManualEmotion("neutral")
+                            }
+                            .padding(start = 6.dp, end = 2.dp)
+                    )
+                }
+            }
+        }
 
         if (visibleButtons.isEmpty()) {
             Box(
@@ -1168,6 +1219,41 @@ fun AACMainScreen(
                         Switch(
                             checked = isFacialTrackingEnabled,
                             onCheckedChange = { viewModel.toggleFacialTracking(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF4F46E5)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFF8FAFC))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Sort Grid by Emotion Relevance",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF1E293B)
+                            )
+                            Text(
+                                text = "Promote words, folders & phrases relevant to captured or selected emotion",
+                                fontSize = 10.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                        Switch(
+                            checked = isEmotionSortingEnabled,
+                            onCheckedChange = { viewModel.toggleEmotionSorting(it) },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = Color(0xFF4F46E5)

@@ -145,6 +145,22 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
     private val _isFacialTrackingEnabled = MutableStateFlow(true)
     val isFacialTrackingEnabled: StateFlow<Boolean> = _isFacialTrackingEnabled.asStateFlow()
 
+    private val _isEmotionSortingEnabled = MutableStateFlow(true)
+    val isEmotionSortingEnabled: StateFlow<Boolean> = _isEmotionSortingEnabled.asStateFlow()
+
+    private val _manualEmotionOverride = MutableStateFlow<String?>(null)
+    val manualEmotionOverride: StateFlow<String?> = _manualEmotionOverride.asStateFlow()
+
+    val activeEmotion: StateFlow<String> = MutableStateFlow("neutral").apply {
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(_facialState, _manualEmotionOverride) { state, manual ->
+                manual ?: state.dominantEmotion
+            }.collect {
+                value = it
+            }
+        }
+    }
+
     private val _visionStatus = MutableStateFlow("Ready")
     val visionStatus: StateFlow<String> = _visionStatus.asStateFlow()
 
@@ -153,6 +169,95 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
 
     fun toggleFacialTracking(enabled: Boolean? = null) {
         _isFacialTrackingEnabled.value = enabled ?: !_isFacialTrackingEnabled.value
+    }
+
+    fun toggleEmotionSorting(enabled: Boolean? = null) {
+        _isEmotionSortingEnabled.value = enabled ?: !_isEmotionSortingEnabled.value
+    }
+
+    fun setManualEmotion(emotion: String?) {
+        _manualEmotionOverride.value = emotion
+        val emo = emotion ?: _facialState.value.dominantEmotion
+        when (emo) {
+            "happy" -> _suggestedNextWords.value = listOf("happy", "like", "play", "good", "more")
+            "sad" -> _suggestedNextWords.value = listOf("sad", "hurt", "help", "hug", "tired")
+            "angry" -> _suggestedNextWords.value = listOf("stop", "no", "bad", "quiet", "mad")
+            "fearful" -> _suggestedNextWords.value = listOf("scared", "help", "home", "safe", "stop")
+            "disgusted" -> _suggestedNextWords.value = listOf("sick", "hurt", "bathroom", "stop", "bad")
+            "surprised" -> _suggestedNextWords.value = listOf("look", "see", "what", "wow", "fun")
+            else -> {}
+        }
+    }
+
+    fun getEmotionRelevanceScore(button: AACButton, emotion: String): Int {
+        if (!_isEmotionSortingEnabled.value || emotion.isBlank() || emotion == "neutral") return 0
+        val label = button.label.lowercase()
+        val text = button.spokenText.lowercase()
+        val target = button.targetBoardId?.lowercase() ?: ""
+        var score = 0
+
+        when (emotion) {
+            "happy" -> {
+                if (label in setOf("happy", "fun", "good", "great", "smile", "laugh", "love", "like", "play", "yes", "thanks", "more", "favorite", "silly", "nice", "cookie", "toys", "toy", "game") ||
+                    text in setOf("happy", "fun", "good", "great", "smile", "laugh", "love", "like", "play", "yes", "thank you", "thanks", "more", "favorite", "silly", "nice")) {
+                    score += 30
+                }
+                if (target in setOf("sub_feelings", "sub_toys", "sub_food")) score += 25
+                if (button.category == FitzgeraldCategory.SOCIAL) score += 10
+                if (button.semanticTags.contains(SemanticTag.EMOTION) || button.semanticTags.contains(SemanticTag.TOY_PLAY)) score += 15
+            }
+            "sad" -> {
+                if (label in setOf("sad", "bad", "tired", "hurt", "help", "need", "hug", "cry", "home", "mom", "dad", "stop", "sorry", "quiet", "rest", "sleep") ||
+                    text in setOf("sad", "bad", "tired", "hurt", "help", "need", "hug", "cry", "home", "mom", "dad", "stop", "sorry", "quiet", "rest", "sleep")) {
+                    score += 30
+                }
+                if (target in setOf("sub_feelings", "sub_people", "saved_phrases")) score += 25
+                if (button.semanticTags.contains(SemanticTag.EMOTION) || button.semanticTags.contains(SemanticTag.REQUEST)) score += 15
+            }
+            "angry" -> {
+                if (label in setOf("angry", "mad", "frustrated", "stop", "no", "bad", "help", "quiet", "leave", "break", "done", "wait", "difficult") ||
+                    text in setOf("angry", "mad", "frustrated", "stop", "no", "bad", "help", "quiet", "leave", "break", "done", "wait", "difficult")) {
+                    score += 30
+                }
+                if (target in setOf("sub_feelings", "sub_actions")) score += 25
+                if (label == "stop" || label == "no" || label == "help") score += 35
+                if (button.semanticTags.contains(SemanticTag.EMOTION) || button.semanticTags.contains(SemanticTag.REQUEST)) score += 15
+            }
+            "fearful" -> {
+                if (label in setOf("scared", "fear", "help", "safe", "home", "mom", "dad", "stop", "hold", "listen", "quiet", "hide", "dark", "no") ||
+                    text in setOf("scared", "fear", "help", "safe", "home", "mom", "dad", "stop", "hold", "listen", "quiet", "hide", "dark", "no")) {
+                    score += 30
+                }
+                if (target in setOf("sub_people", "sub_feelings", "sub_places")) score += 25
+                if (label == "help" || label == "home") score += 35
+                if (button.semanticTags.contains(SemanticTag.EMOTION) || button.semanticTags.contains(SemanticTag.REQUEST)) score += 15
+            }
+            "disgusted" -> {
+                if (label in setOf("discomfort", "sick", "bathroom", "hurt", "bad", "hot", "cold", "stop", "dirty", "clean", "water", "medicine", "tired") ||
+                    text in setOf("discomfort", "sick", "bathroom", "hurt", "bad", "hot", "cold", "stop", "dirty", "clean", "water", "medicine", "tired")) {
+                    score += 30
+                }
+                if (target in setOf("sub_feelings", "sub_places", "sub_food")) score += 25
+                if (label == "bathroom" || label == "hurt" || label == "sick") score += 35
+                if (button.semanticTags.contains(SemanticTag.SENSORY) || button.semanticTags.contains(SemanticTag.REQUEST)) score += 15
+            }
+            "surprised" -> {
+                if (label in setOf("look", "see", "what", "wow", "big", "different", "new", "fun", "more", "who", "where", "fast") ||
+                    text in setOf("look", "see", "what", "wow", "big", "different", "new", "fun", "more", "who", "where", "fast")) {
+                    score += 30
+                }
+                if (target in setOf("sub_toys", "sub_actions")) score += 25
+                if (button.semanticTags.contains(SemanticTag.GENERAL) || button.semanticTags.contains(SemanticTag.ACTION_CORE)) score += 10
+            }
+        }
+        return score
+    }
+
+    fun sortButtonsByEmotion(buttons: List<AACButton>, emotion: String): List<AACButton> {
+        if (!_isEmotionSortingEnabled.value || emotion.isBlank() || emotion == "neutral") {
+            return buttons
+        }
+        return buttons.sortedByDescending { getEmotionRelevanceScore(it, emotion) }
     }
 
     fun onVisionStatus(status: String) {

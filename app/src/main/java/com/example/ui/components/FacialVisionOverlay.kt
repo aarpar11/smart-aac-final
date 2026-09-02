@@ -13,8 +13,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +50,9 @@ fun FacialVisionOverlay(
     val coroutineScope = rememberCoroutineScope()
     val facialState by viewModel.facialState.collectAsStateWithLifecycle()
     val isEnabled by viewModel.isFacialTrackingEnabled.collectAsStateWithLifecycle()
+    val activeEmotion by viewModel.activeEmotion.collectAsStateWithLifecycle()
+    val manualEmotion by viewModel.manualEmotionOverride.collectAsStateWithLifecycle()
+    val isEmotionSortingEnabled by viewModel.isEmotionSortingEnabled.collectAsStateWithLifecycle()
 
     var hasCameraPermission by remember {
         mutableStateOf(
@@ -74,6 +80,17 @@ fun FacialVisionOverlay(
     }
 
     if (!isEnabled) return
+
+    val emotionsList = listOf(
+        null to "🔄 Auto",
+        "happy" to "😊 Happy",
+        "sad" to "😢 Sad",
+        "angry" to "😠 Frustrated",
+        "fearful" to "😨 Fearful",
+        "disgusted" to "😣 Discomfort",
+        "surprised" to "😲 Surprised",
+        "neutral" to "😐 Neutral"
+    )
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -119,7 +136,7 @@ fun FacialVisionOverlay(
                         color = Color.White
                     )
 
-                    val emotionEmoji = when (facialState.dominantEmotion) {
+                    val emotionEmoji = when (activeEmotion) {
                         "happy" -> "😊 Happy"
                         "sad" -> "😢 Sad"
                         "angry" -> "😠 Frustrated"
@@ -130,11 +147,11 @@ fun FacialVisionOverlay(
                     }
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF1E293B),
+                        color = if (manualEmotion != null) Color(0xFF3B82F6) else Color(0xFF1E293B),
                         modifier = Modifier.padding(start = 4.dp)
                     ) {
                         Text(
-                            text = emotionEmoji,
+                            text = if (manualEmotion != null) "$emotionEmoji (Manual)" else emotionEmoji,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color(0xFFE2E8F0),
@@ -152,6 +169,49 @@ fun FacialVisionOverlay(
                         contentDescription = "Expand Vision Controls",
                         tint = Color(0xFF94A3B8)
                     )
+                }
+            }
+
+            // Emotion Relevance Test & Selector Bar
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Emotion:",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF94A3B8),
+                    modifier = Modifier.padding(end = 2.dp)
+                )
+                emotionsList.forEach { (emoKey, label) ->
+                    val isSelected = (emoKey == null && manualEmotion == null) || (emoKey != null && manualEmotion == emoKey)
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                viewModel.setManualEmotion(emoKey)
+                            }
+                            .border(
+                                width = if (isSelected) 1.5.dp else 0.5.dp,
+                                color = if (isSelected) Color(0xFF60A5FA) else Color(0xFF334155),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 10.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
