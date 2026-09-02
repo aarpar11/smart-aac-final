@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Smart AAC</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel Standalone -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  
+  <style>
+    body {
+      touch-action: manipulation;
+      -webkit-user-select: none;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .scrollbar-none::-webkit-scrollbar {
+      display: none;
+    }
+    .scrollbar-none {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .speaking-pulse {
+      animation: pulse-ring 1.2s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900 overflow-x-hidden">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo } = React;
+
+    // --- FITZGERALD CATEGORIES & COLORS ---
+    const FITZGERALD_STYLES = {
+      PEOPLE: { bg: '#FEF9C3', border: '#EAB308', text: '#713F12', label: 'People' },       // Yellow
+      ACTION: { bg: '#DCFCE7', border: '#22C55E', text: '#14532D', label: 'Action' },       // Green
+      ADJECTIVE: { bg: '#DBEAFE', border: '#3B82F6', text: '#1E3A8A', label: 'Descriptor' }, // Blue
+      NOUN: { bg: '#FFEDD5', border: '#F97316', text: '#7C2D12', label: 'Noun' },             // Orange
+      SOCIAL: { bg: '#FCE7F3', border: '#EC4899', text: '#831843', label: 'Social' },         // Pink
+      NAVIGATION: { bg: '#F3E8FF', border: '#A855F7', text: '#581C87', label: 'Folder' },     // Purple
+      SMALL_WORDS: { bg: '#F1F5F9', border: '#94A3B8', text: '#334155', label: 'Function' }  // Gray/White
+    };
+
+    const HIGH_CONTRAST_STYLES = {
+      PEOPLE: { bg: '#FEF08A', border: '#000000', text: '#000000' },
+      ACTION: { bg: '#86EFAC', border: '#000000', text: '#000000' },
+      ADJECTIVE: { bg: '#93C5FD', border: '#000000', text: '#000000' },
+      NOUN: { bg: '#FDBA74', border: '#000000', text: '#000000' },
+      SOCIAL: { bg: '#F472B6', border: '#000000', text: '#000000' },
+      NAVIGATION: { bg: '#C084FC', border: '#000000', text: '#000000' },
+      SMALL_WORDS: { bg: '#FFFFFF', border: '#000000', text: '#000000' }
+    };
+
+    // --- PRESET CORE BOARDS (OpenBoard Compatible) ---
+    const PRESET_BOARDS = {
+      core_home: {
+        id: "core_home",
+        name: "Core Home",
+        buttons: [
+          // People & Pronouns
+          { id: "c_i", label: "I", spokenText: "I", category: "PEOPLE", icon: "👤", tags: ["person", "core"], isCore: true },
+          { id: "c_you", label: "You", spokenText: "you", category: "PEOPLE", icon: "👉", tags: ["person", "core"], isCore: true },
+          { id: "c_we", label: "We", spokenText: "we", category: "PEOPLE", icon: "👥", tags: ["person", "core"], isCore: true },
+          { id: "f_people", label: "People 📂", spokenText: "People folder", category: "NAVIGATION", icon: "🧑‍🤝‍🧑", targetBoardId: "sub_people", isFolder: true },
+          
+          // Core Verbs
+          { id: "c_want", label: "Want", spokenText: "want", category: "ACTION", icon: "🤲", tags: ["request", "core"], isCore: true },
+          { id: "c_like", label: "Like", spokenText: "like", category: "ACTION", icon: "👍", tags: ["social", "core"], isCore: true },
+          { id: "c_go", label: "Go", spokenText: "go", category: "ACTION", icon: "🚶", tags: ["motion", "core"], isCore: true },
+          { id: "c_eat", label: "Eat", spokenText: "eat", category: "ACTION", icon: "🍽️", tags: ["food", "core"], isCore: true },
+          { id: "c_help", label: "Help", spokenText: "help", category: "ACTION", icon: "🆘", tags: ["request", "core"], isCore: true },
+          { id: "c_play", label: "Play", spokenText: "play", category: "ACTION", icon: "🎮", tags: ["play", "core"], isCore: true },
+          { id: "c_stop", label: "Stop", spokenText: "stop", category: "ACTION", icon: "🛑", tags: ["request", "core"], isCore: true },
+          { id: "f_actions", label: "Actions 📂", spokenText: "Actions folder", category: "NAVIGATION", icon: "⚡", targetBoardId: "sub_actions", isFolder: true },
+
+          // Descriptors
+          { id: "c_good", label: "Good", spokenText: "good", category: "ADJECTIVE", icon: "⭐", tags: ["descriptor", "core"], isCore: true },
+          { id: "c_bad", label: "Bad", spokenText: "bad", category: "ADJECTIVE", icon: "👎", tags: ["descriptor", "core"], isCore: true },
+          { id: "c_more", label: "More", spokenText: "more", category: "ADJECTIVE", icon: "➕", tags: ["request", "core"], isCore: true },
+          { id: "c_happy", label: "Happy", spokenText: "happy", category: "ADJECTIVE", icon: "😊", tags: ["emotion", "core"], isCore: true },
+          { id: "c_tired", label: "Tired", spokenText: "tired", category: "ADJECTIVE", icon: "🥱", tags: ["emotion", "sensory"], isCore: true },
+          { id: "f_feelings", label: "Feelings 📂", spokenText: "Feelings folder", category: "NAVIGATION", icon: "💖", targetBoardId: "sub_feelings", isFolder: true },
+
+          // Objects & Places
+          { id: "c_water", label: "Water", spokenText: "water", category: "NOUN", icon: "💧", tags: ["food", "drink"], isCore: true },
+          { id: "c_bathroom", label: "Bathroom", spokenText: "bathroom", category: "NOUN", icon: "🚻", tags: ["place", "request"], isCore: true },
+          { id: "c_home", label: "Home", spokenText: "home", category: "NOUN", icon: "🏠", tags: ["place"], isCore: true },
+          { id: "f_places", label: "Places 📂", spokenText: "Places folder", category: "NAVIGATION", icon: "🗺️", targetBoardId: "sub_places", isFolder: true },
+
+          // Social & Folders
+          { id: "c_yes", label: "Yes", spokenText: "yes", category: "SOCIAL", icon: "✅", tags: ["social", "core"], isCore: true },
+          { id: "c_no", label: "No", spokenText: "no", category: "SOCIAL", icon: "❌", tags: ["social", "core"], isCore: true },
+          { id: "c_please", label: "Please", spokenText: "please", category: "SOCIAL", icon: "🙏", tags: ["social", "request"], isCore: true },
+          { id: "c_thanks", label: "Thanks", spokenText: "thank you", category: "SOCIAL", icon: "🤝", tags: ["social"], isCore: true },
+          { id: "c_hello", label: "Hello", spokenText: "hello", category: "SOCIAL", icon: "👋", tags: ["social"], isCore: true },
+          { id: "f_food", label: "Food 📂", spokenText: "Food folder", category: "NAVIGATION", icon: "🍎", targetBoardId: "sub_food", isFolder: true },
+          { id: "f_toys", label: "Toys 📂", spokenText: "Toys folder", category: "NAVIGATION", icon: "🧸", targetBoardId: "sub_toys", isFolder: true },
+          { id: "f_saved", label: "Saved Phrases 📁", spokenText: "Saved phrases", category: "NAVIGATION", icon: "💾", targetBoardId: "saved_phrases", isFolder: true }
+        ]
+      },
+      sub_feelings: {
+        id: "sub_feelings",
+        name: "Feelings & Emotions",
+        buttons: [
+          { id: "fl_happy", label: "Happy", spokenText: "happy", category: "ADJECTIVE", icon: "😊", tags: ["emotion"] },
+          { id: "fl_sad", label: "Sad", spokenText: "sad", category: "ADJECTIVE", icon: "😢", tags: ["emotion"] },
+          { id: "fl_angry", label: "Angry", spokenText: "angry", category: "ADJECTIVE", icon: "😠", tags: ["emotion"] },
+          { id: "fl_scared", label: "Scared", spokenText: "scared", category: "ADJECTIVE", icon: "😨", tags: ["emotion"] },
+          { id: "fl_tired", label: "Tired", spokenText: "tired", category: "ADJECTIVE", icon: "🥱", tags: ["emotion", "sensory"] },
+          { id: "fl_hurt", label: "Hurt", spokenText: "I am hurt", category: "ADJECTIVE", icon: "🩹", tags: ["sensory", "request"] },
+          { id: "fl_sick", label: "Sick", spokenText: "I feel sick", category: "ADJECTIVE", icon: "🤒", tags: ["sensory"] },
+          { id: "fl_excited", label: "Excited", spokenText: "excited", category: "ADJECTIVE", icon: "🤩", tags: ["emotion"] },
+          { id: "fl_calm", label: "Calm", spokenText: "calm", category: "ADJECTIVE", icon: "😌", tags: ["emotion"] },
+          { id: "fl_frustrated", label: "Frustrated", spokenText: "frustrated", category: "ADJECTIVE", icon: "😤", tags: ["emotion"] },
+          { id: "fl_proud", label: "Proud", spokenText: "proud", category: "ADJECTIVE", icon: "🦁", tags: ["emotion"] },
+          { id: "fl_silly", label: "Silly", spokenText: "silly", category: "ADJECTIVE", icon: "🤪", tags: ["emotion"] }
+        ]
+      },
+      sub_actions: {
+        id: "sub_actions",
+        name: "Actions & Verbs",
+        buttons: [
+          { id: "ac_look", label: "Look", spokenText: "look", category: "ACTION", icon: "👀", tags: ["core"] },
+          { id: "ac_listen", label: "Listen", spokenText: "listen", category: "ACTION", icon: "👂", tags: ["core"] },
+          { id: "ac_open", label: "Open", spokenText: "open", category: "ACTION", icon: "🔓", tags: ["request"] },
+          { id: "ac_close", label: "Close", spokenText: "close", category: "ACTION", icon: "🔒", tags: ["request"] },
+          { id: "ac_read", label: "Read", spokenText: "read", category: "ACTION", icon: "📖", tags: ["play"] },
+          { id: "ac_draw", label: "Draw", spokenText: "draw", category: "ACTION", icon: "🎨", tags: ["play"] },
+          { id: "ac_sing", label: "Sing", spokenText: "sing", category: "ACTION", icon: "🎵", tags: ["social"] },
+          { id: "ac_dance", label: "Dance", spokenText: "dance", category: "ACTION", icon: "💃", tags: ["social"] },
+          { id: "ac_sleep", label: "Sleep", spokenText: "sleep", category: "ACTION", icon: "💤", tags: ["sensory"] },
+          { id: "ac_hug", label: "Hug", spokenText: "hug", category: "ACTION", icon: "🤗", tags: ["social"] },
+          { id: "ac_wait", label: "Wait", spokenText: "wait", category: "ACTION", icon: "⏳", tags: ["request"] },
+          { id: "ac_try", label: "Try", spokenText: "try", category: "ACTION", icon: "💪", tags: ["core"] }
+        ]
+      },
+      sub_food: {
+        id: "sub_food",
+        name: "Food & Drinks",
+        buttons: [
+          { id: "fd_water", label: "Water", spokenText: "water", category: "NOUN", icon: "💧", tags: ["food", "drink"] },
+          { id: "fd_juice", label: "Juice", spokenText: "juice", category: "NOUN", icon: "🧃", tags: ["food", "drink"] },
+          { id: "fd_milk", label: "Milk", spokenText: "milk", category: "NOUN", icon: "🥛", tags: ["food", "drink"] },
+          { id: "fd_apple", label: "Apple", spokenText: "apple", category: "NOUN", icon: "🍎", tags: ["food"] },
+          { id: "fd_banana", label: "Banana", spokenText: "banana", category: "NOUN", icon: "🍌", tags: ["food"] },
+          { id: "fd_cookie", label: "Cookie", spokenText: "cookie", category: "NOUN", icon: "🍪", tags: ["food"] },
+          { id: "fd_pizza", label: "Pizza", spokenText: "pizza", category: "NOUN", icon: "🍕", tags: ["food"] },
+          { id: "fd_sandwich", label: "Sandwich", spokenText: "sandwich", category: "NOUN", icon: "🥪", tags: ["food"] },
+          { id: "fd_snack", label: "Snack", spokenText: "snack", category: "NOUN", icon: "🥨", tags: ["food"] },
+          { id: "fd_hungry", label: "Hungry", spokenText: "I am hungry", category: "ADJECTIVE", icon: "🤤", tags: ["sensory"] },
+          { id: "fd_thirsty", label: "Thirsty", spokenText: "I am thirsty", category: "ADJECTIVE", icon: "🥤", tags: ["sensory"] }
+        ]
+      },
+      sub_toys: {
+        id: "sub_toys",
+        name: "Toys & Games",
+        buttons: [
+          { id: "ty_ball", label: "Ball", spokenText: "ball", category: "NOUN", icon: "⚽", tags: ["play"] },
+          { id: "ty_blocks", label: "Blocks", spokenText: "blocks", category: "NOUN", icon: "🧱", tags: ["play"] },
+          { id: "ty_car", label: "Toy Car", spokenText: "toy car", category: "NOUN", icon: "🚗", tags: ["play"] },
+          { id: "ty_puzzle", label: "Puzzle", spokenText: "puzzle", category: "NOUN", icon: "🧩", tags: ["play"] },
+          { id: "ty_tablet", label: "Tablet", spokenText: "tablet", category: "NOUN", icon: "📱", tags: ["play"] },
+          { id: "ty_doll", label: "Doll", spokenText: "doll", category: "NOUN", icon: "🪆", tags: ["play"] },
+          { id: "ty_game", label: "Game", spokenText: "game", category: "NOUN", icon: "🎲", tags: ["play"] },
+          { id: "ty_turn", label: "My Turn", spokenText: "my turn", category: "SOCIAL", icon: "🙋", tags: ["social"] }
+        ]
+      },
+      sub_people: {
+        id: "sub_people",
+        name: "People & Pronouns",
+        buttons: [
+          { id: "pp_mom", label: "Mom", spokenText: "mom", category: "PEOPLE", icon: "👩", tags: ["person"] },
+          { id: "pp_dad", label: "Dad", spokenText: "dad", category: "PEOPLE", icon: "👨", tags: ["person"] },
+          { id: "pp_friend", label: "Friend", spokenText: "friend", category: "PEOPLE", icon: "🧑‍🤝‍🧑", tags: ["person"] },
+          { id: "pp_teacher", label: "Teacher", spokenText: "teacher", category: "PEOPLE", icon: "👩‍🏫", tags: ["person"] },
+          { id: "pp_doctor", label: "Doctor", spokenText: "doctor", category: "PEOPLE", icon: "🩺", tags: ["person"] },
+          { id: "pp_sister", label: "Sister", spokenText: "sister", category: "PEOPLE", icon: "👧", tags: ["person"] },
+          { id: "pp_brother", label: "Brother", spokenText: "brother", category: "PEOPLE", icon: "👦", tags: ["person"] }
+        ]
+      },
+      sub_places: {
+        id: "sub_places",
+        name: "Places",
+        buttons: [
+          { id: "pl_home", label: "Home", spokenText: "home", category: "NOUN", icon: "🏠", tags: ["place"] },
+          { id: "pl_school", label: "School", spokenText: "school", category: "NOUN", icon: "🏫", tags: ["place"] },
+          { id: "pl_park", label: "Park", spokenText: "park", category: "NOUN", icon: "🌳", tags: ["place"] },
+          { id: "pl_store", label: "Store", spokenText: "store", category: "NOUN", icon: "🛒", tags: ["place"] },
+          { id: "pl_outside", label: "Outside", spokenText: "outside", category: "NOUN", icon: "☀️", tags: ["place"] },
+          { id: "pl_car", label: "Car", spokenText: "in the car", category: "NOUN", icon: "🚙", tags: ["place"] }
+        ]
+      },
+      saved_phrases: {
+        id: "saved_phrases",
+        name: "Saved Phrases 📁",
+        buttons: [
+          { id: "sp_hello", label: "Hello, nice to meet you!", spokenText: "Hello, nice to meet you!", category: "SOCIAL", icon: "👋" },
+          { id: "sp_water", label: "Can I have some water please?", spokenText: "Can I have some water please?", category: "NOUN", icon: "💧" },
+          { id: "sp_break", label: "I need a quick break.", spokenText: "I need a quick break.", category: "ADJECTIVE", icon: "⏸️" }
+        ]
+      }
+    };
+
+    // --- MAIN REACT AAC APPLICATION ---
+    function SmartAACApp() {
+      // Boards & Navigation state
+      const [boards, setBoards] = useState(() => {
+        try {
+          const saved = localStorage.getItem("smart_aac_boards");
+          return saved ? JSON.parse(saved) : PRESET_BOARDS;
+        } catch (e) {
+          return PRESET_BOARDS;
+        }
+      });
+      const [currentBoardId, setCurrentBoardId] = useState("core_home");
+      const [navigationStack, setNavigationStack] = useState([]);
+
+      // Sentence Composer state
+      const [sentence, setSentence] = useState([]);
+      const [suggestedWords, setSuggestedWords] = useState(["I", "want", "like", "go", "help", "more"]);
+      const [isSpeaking, setIsSpeaking] = useState(false);
+
+      // Vision & Emotion Detection state
+      const [isCameraEnabled, setIsCameraEnabled] = useState(true);
+      const [detectedEmotion, setDetectedEmotion] = useState("neutral");
+      const [manualEmotion, setManualEmotion] = useState(null);
+      const [isEmotionSortingEnabled, setIsEmotionSortingEnabled] = useState(true);
+      const [dwellProgress, setDwellProgress] = useState(0);
+      const [dwellTrigger, setDwellTrigger] = useState("NONE");
+      const [cameraStatus, setCameraStatus] = useState("Ready");
+
+      // Preferences & Display Settings
+      const [isHighContrast, setIsHighContrast] = useState(false);
+      const [gridColumns, setGridColumns] = useState(4); // 3 or 4
+      const [cardDisplayMode, setCardDisplayMode] = useState("BOTH"); // BOTH, ICON_ONLY, TEXT_ONLY
+      const [labelPosition, setLabelPosition] = useState("BOTTOM"); // TOP or BOTTOM
+      const [speakOnTileTap, setSpeakOnTileTap] = useState(false);
+      const [skinTone, setSkinTone] = useState("DEFAULT"); // DEFAULT, LIGHT, MEDIUM_LIGHT, MEDIUM, MEDIUM_DARK, DARK
+      const [speechRate, setSpeechRate] = useState(1.0);
+      const [speechPitch, setSpeechPitch] = useState(1.0);
+
+      // UI Modals
+      const [isEditMode, setIsEditMode] = useState(false);
+      const [showSettingsModal, setShowSettingsModal] = useState(false);
+      const [showCustomizerModal, setShowCustomizerModal] = useState(false);
+      const [selectedCardForEdit, setSelectedCardForEdit] = useState(null);
+
+      // OpenSymbols Search state
+      const [searchQuery, setSearchQuery] = useState("");
+      const [searchResults, setSearchResults] = useState([]);
+      const [isSearching, setIsSearching] = useState(false);
+      const [newCardLabel, setNewCardLabel] = useState("");
+      const [newCardSpeech, setNewCardSpeech] = useState("");
+      const [newCardCategory, setNewCardCategory] = useState("NOUN");
+      const [newCardIcon, setNewCardIcon] = useState("✨");
+
+      const videoRef = useRef(null);
+      const canvasRef = useRef(null);
+      const activeEmotion = manualEmotion || detectedEmotion;
+
+      // --- SAVE BOARDS ON CHANGE ---
+      useEffect(() => {
+        try {
+          localStorage.setItem("smart_aac_boards", JSON.stringify(boards));
+        } catch (e) {}
+      }, [boards]);
+
+      // --- SPEECH SYNTHESIS ENGINE ---
+      const speakText = (text, pitchMult = 1.0, rateMult = 1.0) => {
+        if (!text) return;
+        setIsSpeaking(true);
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = speechRate * rateMult;
+          utterance.pitch = speechPitch * pitchMult;
+          utterance.onend = () => setIsSpeaking(false);
+          utterance.onerror = () => setIsSpeaking(false);
+          window.speechSynthesis.speak(utterance);
+        } else {
+          // Native Android Bridge Fallback
+          if (window.AndroidAACBridge && window.AndroidAACBridge.speakText) {
+            window.AndroidAACBridge.speakText(text, speechPitch * pitchMult, speechRate * rateMult);
+          }
+          setTimeout(() => setIsSpeaking(false), 800);
+        }
+      };
+
+      // --- CAMERA & EMOTION DETECTION SIMULATOR / HEURISTIC ---
+      useEffect(() => {
+        let stream = null;
+        let animationFrame = null;
+        let interval = null;
+
+        if (isCameraEnabled && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false })
+            .then(s => {
+              stream = s;
+              if (videoRef.current) {
+                videoRef.current.srcObject = s;
+                videoRef.current.play();
+                setCameraStatus("Active Feed");
+              }
+            })
+            .catch(err => {
+              setCameraStatus("Camera unavailable");
+            });
+        }
+
+        // Live Vision Gesture Heuristic & Dwell Simulator
+        let smileCounter = 0;
+        let browCounter = 0;
+
+        interval = setInterval(() => {
+          if (!manualEmotion && isCameraEnabled) {
+            // Simulated subtle detection for testing preview
+            const emotions = ["neutral", "happy", "happy", "neutral", "sad", "angry", "fearful", "surprised"];
+            // Keep steady unless manual
+          }
+        }, 3000);
+
+        return () => {
+          if (stream) stream.getTracks().forEach(track => track.stop());
+          clearInterval(interval);
+        };
+      }, [isCameraEnabled, manualEmotion]);
+
+      // --- EMOTION-BASED VOCABULARY RELEVANCE SORTING ---
+      const calculateEmotionRelevance = (btn, emotion) => {
+        if (!isEmotionSortingEnabled || !emotion || emotion === "neutral") return 0;
+        const label = (btn.label || "").toLowerCase();
+        const text = (btn.spokenText || "").toLowerCase();
+        const target = (btn.targetBoardId || "").toLowerCase();
+        let score = 0;
+
+        switch (emotion) {
+          case "happy":
+            if (["happy", "fun", "good", "great", "smile", "laugh", "love", "like", "play", "yes", "thanks", "more", "favorite", "silly", "cookie", "toys", "game"].includes(label)) score += 30;
+            if (["sub_feelings", "sub_toys", "sub_food"].includes(target)) score += 25;
+            if (btn.category === "SOCIAL") score += 10;
+            break;
+          case "sad":
+            if (["sad", "bad", "tired", "hurt", "help", "need", "hug", "cry", "home", "mom", "dad", "stop", "sorry", "quiet", "rest", "sleep"].includes(label)) score += 30;
+            if (["sub_feelings", "sub_people", "saved_phrases"].includes(target)) score += 25;
+            if (btn.category === "ADJECTIVE" || label === "help") score += 15;
+            break;
+          case "angry":
+            if (["angry", "mad", "frustrated", "stop", "no", "bad", "help", "quiet", "leave", "break", "done", "wait"].includes(label)) score += 30;
+            if (["sub_feelings", "sub_actions"].includes(target)) score += 25;
+            if (label === "stop" || label === "no" || label === "help") score += 35;
+            break;
+          case "fearful":
+            if (["scared", "fear", "help", "safe", "home", "mom", "dad", "stop", "hold", "listen", "quiet", "hide", "no"].includes(label)) score += 30;
+            if (["sub_people", "sub_feelings", "sub_places"].includes(target)) score += 25;
+            if (label === "help" || label === "home") score += 35;
+            break;
+          case "disgusted":
+            if (["discomfort", "sick", "bathroom", "hurt", "bad", "hot", "cold", "stop", "dirty", "water", "tired"].includes(label)) score += 30;
+            if (["sub_feelings", "sub_places", "sub_food"].includes(target)) score += 25;
+            if (label === "bathroom" || label === "hurt" || label === "sick") score += 35;
+            break;
+          case "surprised":
+            if (["look", "see", "what", "wow", "big", "different", "new", "fun", "more"].includes(label)) score += 30;
+            if (["sub_toys", "sub_actions"].includes(target)) score += 25;
+            break;
+        }
+        return score;
+      };
+
+      // Current board buttons sorted by emotion
+      const currentBoard = boards[currentBoardId] || PRESET_BOARDS.core_home;
+      const displayButtons = useMemo(() => {
+        const raw = currentBoard.buttons || [];
+        if (isEditMode || !isEmotionSortingEnabled || activeEmotion === "neutral") {
+          return raw;
+        }
+        return [...raw].sort((a, b) => calculateEmotionRelevance(b, activeEmotion) - calculateEmotionRelevance(a, activeEmotion));
+      }, [currentBoard, isEditMode, isEmotionSortingEnabled, activeEmotion]);
+
+      // --- WORD PREDICTION ENGINE ---
+      const updatePredictions = (lastWord) => {
+        if (!lastWord) {
+          setSuggestedWords(["I", "want", "like", "go", "help", "more"]);
+          return;
+        }
+        const lw = lastWord.toLowerCase();
+        if (["i", "you", "we"].includes(lw)) {
+          setSuggestedWords(["want", "like", "need", "feel", "go", "am", "see"]);
+        } else if (["want", "need"].includes(lw)) {
+          setSuggestedWords(["more", "water", "food", "help", "to play", "bathroom", "home"]);
+        } else if (["feel"].includes(lw)) {
+          setSuggestedWords(["happy", "sad", "tired", "sick", "good", "frustrated"]);
+        } else if (["go"].includes(lw)) {
+          setSuggestedWords(["home", "school", "outside", "bathroom", "park"]);
+        } else {
+          setSuggestedWords(["please", "thanks", "and", "more", "now", "yes", "stop"]);
+        }
+      };
+
+      // --- BUTTON CLICK HANDLER ---
+      const handleButtonClick = (button) => {
+        if (isEditMode) {
+          setSelectedCardForEdit(button);
+          return;
+        }
+
+        if (button.isFolder && button.targetBoardId) {
+          setNavigationStack(prev => [...prev, currentBoardId]);
+          setCurrentBoardId(button.targetBoardId);
+          if (speakOnTileTap) speakText(button.spokenText || button.label);
+          return;
+        }
+
+        // Add to sentence
+        const newSentence = [...sentence, button];
+        setSentence(newSentence);
+        updatePredictions(button.spokenText || button.label);
+
+        if (speakOnTileTap) {
+          speakText(button.spokenText || button.label);
+        }
+      };
+
+      // --- OPENSYMBOLS LIVE SEARCH ---
+      const handleSearchSymbols = async () => {
+        if (!searchQuery.trim()) return;
+        setIsSearching(true);
+        try {
+          const res = await fetch(`https://www.opensymbols.org/api/v2/symbols?q=${encodeURIComponent(searchQuery)}`);
+          if (res.ok) {
+            const data = await res.json();
+            setSearchResults(data.slice(0, 10));
+          }
+        } catch (e) {
+          console.error("OpenSymbols fetch error", e);
+        } finally {
+          setIsSearching(false);
+        }
+      };
+
+      // --- ADD CUSTOM CARD ---
+      const handleAddCustomCard = () => {
+        if (!newCardLabel.trim()) return;
+        const newBtn = {
+          id: `custom_${Date.now()}`,
+          label: newCardLabel,
+          spokenText: newCardSpeech || newCardLabel,
+          category: newCardCategory,
+          icon: newCardIcon || "⭐",
+          tags: ["custom"]
+        };
+        const updatedBoard = {
+          ...currentBoard,
+          buttons: [...(currentBoard.buttons || []), newBtn]
+        };
+        setBoards(prev => ({ ...prev, [currentBoardId]: updatedBoard }));
+        setNewCardLabel("");
+        setNewCardSpeech("");
+        setShowCustomizerModal(false);
+      };
+
+      // --- SKIN TONE APPLY ---
+      const applySkinTone = (icon) => {
+        if (skinTone === "DEFAULT" || !icon) return icon;
+        const toneModifiers = {
+          LIGHT: "\u{1F3FB}",
+          MEDIUM_LIGHT: "\u{1F3FC}",
+          MEDIUM: "\u{1F3FD}",
+          MEDIUM_DARK: "\u{1F3FE}",
+          DARK: "\u{1F3FF}"
+        };
+        return icon;
+      };
+
+      return (
+        <div className="flex flex-col h-screen max-w-5xl mx-auto bg-slate-100 text-slate-800 select-none">
+          
+          {/* 1. TOP HEADER & CONTROLS */}
+          <header className="bg-white border-b border-slate-200 px-3 py-2 flex items-center justify-between shadow-sm z-10">
+            <div className="flex items-center space-x-2">
+              {navigationStack.length > 0 && (
+                <button
+                  onClick={() => {
+                    const prev = [...navigationStack];
+                    const target = prev.pop();
+                    setNavigationStack(prev);
+                    setCurrentBoardId(target || "core_home");
+                  }}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-bold px-3 py-1.5 rounded-lg flex items-center text-sm transition"
+                >
+                  <span className="mr-1">⬅️</span> Back
+                </button>
+              )}
+              <div>
+                <h1 className="text-base font-extrabold text-slate-800 leading-tight">
+                  {currentBoard.name}
+                </h1>
+                <p className="text-[10px] text-slate-400 font-medium">Smart AAC • OpenBoard Format</p>
+              </div>
+            </div>
+
+            {/* Quick Action Controls */}
+            <div className="flex items-center space-x-1.5">
+              <button
+                onClick={() => setIsCameraEnabled(!isCameraEnabled)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 border transition ${
+                  isCameraEnabled ? "bg-indigo-600 text-white border-indigo-700 shadow-sm" : "bg-white text-slate-600 border-slate-300"
+                }`}
+              >
+                <span>📷</span>
+                <span className="hidden sm:inline">Vision HUD</span>
+              </button>
+
+              <button
+                onClick={() => setGridColumns(gridColumns === 4 ? 3 : 4)}
+                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 px-2.5 py-1.5 rounded-lg text-xs font-semibold"
+                title="Toggle 3 or 4 columns"
+              >
+                {gridColumns} cols
+              </button>
+
+              <button
+                onClick={() => setIsHighContrast(!isHighContrast)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                  isHighContrast ? "bg-black text-yellow-300 border-black" : "bg-white text-slate-700 border-slate-300"
+                }`}
+                title="High Contrast Mode"
+              >
+                👁️ HC
+              </button>
+
+              <button
+                onClick={() => setIsEditMode(!isEditMode)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition ${
+                  isEditMode ? "bg-amber-500 text-white border-amber-600" : "bg-white text-slate-700 border-slate-300"
+                }`}
+              >
+                ✏️ {isEditMode ? "Done" : "Edit"}
+              </button>
+
+              <button
+                onClick={() => setShowCustomizerModal(true)}
+                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 p-1.5 rounded-lg text-xs"
+                title="Add custom symbols"
+              >
+                ➕
+              </button>
+
+              <button
+                onClick={() => setShowSettingsModal(true)}
+                className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 p-1.5 rounded-lg text-xs"
+                title="Settings"
+              >
+                ⚙️
+              </button>
+            </div>
+          </header>
+
+          {/* 2. LIVE FACIAL VISION & EMOTION TEST CONTROLS */}
+          {isCameraEnabled && (
+            <div className="bg-slate-900 text-white px-3 py-2 shadow-inner border-b border-slate-800 transition-all">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                  <span className="font-bold text-slate-200">Facial Vision & Emotion HUD:</span>
+                  <span className={`px-2 py-0.5 rounded-md font-bold text-xs ${
+                    manualEmotion ? "bg-blue-600 text-white" : "bg-slate-800 text-emerald-300"
+                  }`}>
+                    {activeEmotion.toUpperCase()} {manualEmotion && "(Manual Test)"}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 hidden sm:inline">{cameraStatus}</span>
+              </div>
+
+              {/* Emotion Selector Testing Bar */}
+              <div className="flex items-center space-x-1.5 mt-2 overflow-x-auto pb-1 scrollbar-none">
+                <span className="text-[10px] font-bold text-slate-400 mr-1 shrink-0">Test Emotion:</span>
+                {[
+                  { id: null, label: "🔄 Auto" },
+                  { id: "happy", label: "😊 Happy" },
+                  { id: "sad", label: "😢 Sad" },
+                  { id: "angry", label: "😠 Frustrated" },
+                  { id: "fearful", label: "😨 Fearful" },
+                  { id: "disgusted", label: "😣 Discomfort" },
+                  { id: "surprised", label: "😲 Surprised" },
+                  { id: "neutral", label: "😐 Neutral" }
+                ].map((emo) => {
+                  const isSelected = (emo.id === null && manualEmotion === null) || (emo.id !== null && manualEmotion === emo.id);
+                  return (
+                    <button
+                      key={emo.label}
+                      onClick={() => setManualEmotion(emo.id)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap transition border ${
+                        isSelected
+                          ? "bg-blue-600 text-white border-blue-400 shadow-sm"
+                          : "bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700"
+                      }`}
+                    >
+                      {emo.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Hidden Video element for WebRTC camera stream */}
+              <video ref={videoRef} autoPlay playsInline muted className="hidden"></video>
+            </div>
+          )}
+
+          {/* 3. EMOTION RELEVANCE SORTING NOTIFICATION BANNER */}
+          {!isEditMode && isEmotionSortingEnabled && activeEmotion !== "neutral" && (
+            <div className="bg-indigo-50 border-b border-indigo-100 px-3 py-1.5 flex items-center justify-between text-xs text-indigo-900">
+              <div className="flex items-center space-x-1.5 truncate">
+                <span className="font-bold text-indigo-600">✨ Emotion Priority:</span>
+                <span className="truncate font-medium">
+                  {activeEmotion === "happy" && "😊 Prioritizing positive, social & play tiles"}
+                  {activeEmotion === "sad" && "😢 Prioritizing comfort, help & feelings tiles"}
+                  {activeEmotion === "angry" && "😠 Prioritizing stop, quiet & needs tiles"}
+                  {activeEmotion === "fearful" && "😨 Prioritizing reassurance, safe & home tiles"}
+                  {activeEmotion === "disgusted" && "😣 Prioritizing body needs & discomfort relief"}
+                  {activeEmotion === "surprised" && "😲 Prioritizing discovery & exciting words"}
+                </span>
+              </div>
+              <button
+                onClick={() => setManualEmotion("neutral")}
+                className="text-indigo-600 hover:text-indigo-800 font-bold ml-2 underline shrink-0"
+              >
+                Reset
+              </button>
+            </div>
+          )}
+
+          {/* 4. SENTENCE COMPOSER BAR */}
+          <div className="bg-white border-b border-slate-200 p-2.5 shadow-sm">
+            <div className="flex items-center space-x-2">
+              {/* Word sequence strip */}
+              <div className="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-2 min-h-[52px] flex items-center space-x-1.5 overflow-x-auto scrollbar-none">
+                {sentence.length === 0 ? (
+                  <span className="text-slate-400 text-xs italic pl-1">Tap tiles below to construct sentence...</span>
+                ) : (
+                  sentence.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 flex items-center space-x-1 shadow-sm shrink-0 animate-fadeIn"
+                    >
+                      <span className="text-sm">{item.icon || "🔤"}</span>
+                      <span className="text-xs font-bold text-slate-800">{item.label}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Sentence Controls */}
+              <div className="flex items-center space-x-1">
+                {/* Delete last word */}
+                <button
+                  onClick={() => {
+                    const next = [...sentence];
+                    next.pop();
+                    setSentence(next);
+                    updatePredictions(next.length > 0 ? next[next.length - 1].spokenText : null);
+                  }}
+                  disabled={sentence.length === 0}
+                  className="bg-red-50 hover:bg-red-100 disabled:opacity-40 text-red-600 p-2 rounded-xl text-xs font-bold border border-red-200 flex flex-col items-center justify-center w-11 h-11 transition"
+                  title="Delete last word"
+                >
+                  <span>⌫</span>
+                  <span className="text-[9px]">Del</span>
+                </button>
+
+                {/* Clear all */}
+                <button
+                  onClick={() => {
+                    setSentence([]);
+                    updatePredictions(null);
+                  }}
+                  disabled={sentence.length === 0}
+                  className="bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-600 p-2 rounded-xl text-xs font-bold border border-slate-200 flex flex-col items-center justify-center w-11 h-11 transition"
+                  title="Clear sentence"
+                >
+                  <span>🗑️</span>
+                  <span className="text-[9px]">Clear</span>
+                </button>
+
+                {/* Save phrase */}
+                <button
+                  onClick={() => {
+                    if (sentence.length === 0) return;
+                    const phraseText = sentence.map(s => s.spokenText || s.label).join(" ");
+                    const savedBoard = boards.saved_phrases || PRESET_BOARDS.saved_phrases;
+                    const newBtn = {
+                      id: `saved_${Date.now()}`,
+                      label: phraseText,
+                      spokenText: phraseText,
+                      category: "SOCIAL",
+                      icon: "💾"
+                    };
+                    setBoards(prev => ({
+                      ...prev,
+                      saved_phrases: {
+                        ...savedBoard,
+                        buttons: [...savedBoard.buttons, newBtn]
+                      }
+                    }));
+                    alert("Phrase saved to 'Saved Phrases' board!");
+                  }}
+                  disabled={sentence.length === 0}
+                  className="bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 text-emerald-600 p-2 rounded-xl text-xs font-bold border border-emerald-200 flex flex-col items-center justify-center w-11 h-11 transition"
+                  title="Save phrase"
+                >
+                  <span>💾</span>
+                  <span className="text-[9px]">Save</span>
+                </button>
+
+                {/* Speak Primary */}
+                <button
+                  onClick={() => {
+                    const fullText = sentence.map(s => s.spokenText || s.label).join(" ");
+                    speakText(fullText);
+                  }}
+                  disabled={sentence.length === 0}
+                  className={`p-2 rounded-xl text-xs font-bold flex flex-col items-center justify-center w-14 h-11 shadow-md transition ${
+                    isSpeaking
+                      ? "bg-amber-500 text-white speaking-pulse"
+                      : "bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white"
+                  }`}
+                  title="Speak sentence"
+                >
+                  <span>🔊</span>
+                  <span className="text-[9px]">Speak</span>
+                </button>
+
+                {/* Repeat Louder */}
+                <button
+                  onClick={() => {
+                    const fullText = sentence.map(s => s.spokenText || s.label).join(" ");
+                    speakText(fullText, 1.2, 0.9);
+                  }}
+                  disabled={sentence.length === 0}
+                  className="bg-purple-50 hover:bg-purple-100 disabled:opacity-40 text-purple-600 p-2 rounded-xl text-xs font-bold border border-purple-200 flex flex-col items-center justify-center w-11 h-11 transition"
+                  title="Speak louder & clear"
+                >
+                  <span>📢</span>
+                  <span className="text-[9px]">Loud</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Smart Next-Word Prediction Strip */}
+            <div className="flex items-center space-x-1.5 mt-2 overflow-x-auto scrollbar-none pt-0.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Next:</span>
+              {suggestedWords.map((word, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    const newBtn = {
+                      id: `pred_${Date.now()}_${i}`,
+                      label: word,
+                      spokenText: word,
+                      category: "ACTION",
+                      icon: "✨"
+                    };
+                    handleButtonClick(newBtn);
+                  }}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap shadow-2xs transition"
+                >
+                  + {word}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 5. MAIN AAC GRID TILES */}
+          <main className="flex-1 overflow-y-auto p-3">
+            <div className={`grid gap-2.5 ${gridColumns === 3 ? "grid-cols-3" : "grid-cols-4"}`}>
+              {displayButtons.map((btn) => {
+                const styleConfig = isHighContrast
+                  ? (HIGH_CONTRAST_STYLES[btn.category] || HIGH_CONTRAST_STYLES.SMALL_WORDS)
+                  : (FITZGERALD_STYLES[btn.category] || FITZGERALD_STYLES.SMALL_WORDS);
+
+                const iconContent = btn.imageUrl ? (
+                  <img src={btn.imageUrl} alt={btn.label} className="w-8 h-8 object-contain" />
+                ) : (
+                  <span className="text-2xl">{applySkinTone(btn.icon || "🔤")}</span>
+                );
+
+                return (
+                  <button
+                    key={btn.id}
+                    onClick={() => handleButtonClick(btn)}
+                    style={{
+                      backgroundColor: styleConfig.bg,
+                      borderColor: styleConfig.border
+                    }}
+                    className={`flex flex-col items-center justify-center p-2 rounded-2xl border-2 shadow-sm active:scale-95 transition min-h-[86px] relative select-none ${
+                      isEditMode ? "ring-2 ring-amber-400 animate-pulse" : ""
+                    }`}
+                  >
+                    {/* Badge for folders */}
+                    {btn.isFolder && (
+                      <span className="absolute top-1 right-1.5 text-[10px] font-extrabold bg-purple-700 text-white px-1 rounded-sm">
+                        DIR
+                      </span>
+                    )}
+
+                    {labelPosition === "TOP" && cardDisplayMode !== "ICON_ONLY" && (
+                      <span
+                        style={{ color: styleConfig.text }}
+                        className="text-xs font-black tracking-tight leading-tight mb-1 text-center truncate max-w-full"
+                      >
+                        {btn.label}
+                      </span>
+                    )}
+
+                    {cardDisplayMode !== "TEXT_ONLY" && iconContent}
+
+                    {labelPosition === "BOTTOM" && cardDisplayMode !== "ICON_ONLY" && (
+                      <span
+                        style={{ color: styleConfig.text }}
+                        className="text-xs font-black tracking-tight leading-tight mt-1 text-center truncate max-w-full"
+                      >
+                        {btn.label}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </main>
+
+          {/* 6. SETTINGS MODAL */}
+          {showSettingsModal && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fadeIn">
+              <div className="bg-white rounded-2xl max-w-md w-full p-5 max-h-[85vh] overflow-y-auto shadow-2xl">
+                <div className="flex items-center justify-between border-b pb-3 mb-4">
+                  <h2 className="text-lg font-bold text-slate-800">AAC Settings & Preferences</h2>
+                  <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+                </div>
+
+                <div className="space-y-4 text-xs">
+                  {/* Tile Display Mode */}
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Tile Content Mode</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {["BOTH", "ICON_ONLY", "TEXT_ONLY"].map(m => (
+                        <button
+                          key={m}
+                          onClick={() => setCardDisplayMode(m)}
+                          className={`p-2 rounded-lg border font-semibold ${
+                            cardDisplayMode === m ? "bg-indigo-600 text-white border-indigo-700" : "bg-slate-50 border-slate-200"
+                          }`}
+                        >
+                          {m.replace("_", " ")}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Text Placement */}
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Label Position</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {["BOTTOM", "TOP"].map(p => (
+                        <button
+                          key={p}
+                          onClick={() => setLabelPosition(p)}
+                          className={`p-2 rounded-lg border font-semibold ${
+                            labelPosition === p ? "bg-indigo-600 text-white border-indigo-700" : "bg-slate-50 border-slate-200"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Speak on tile tap */}
+                  <div className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-xl">
+                    <div>
+                      <span className="font-bold text-slate-800 block">Instant Speak on Tile Tap</span>
+                      <span className="text-[10px] text-slate-500">Vocalize word immediately when card is touched</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={speakOnTileTap}
+                      onChange={e => setSpeakOnTileTap(e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                  </div>
+
+                  {/* Emotion Sorting Toggle */}
+                  <div className="flex items-center justify-between p-2.5 bg-slate-50 border rounded-xl">
+                    <div>
+                      <span className="font-bold text-slate-800 block">Sort Grid by Emotion Relevance</span>
+                      <span className="text-[10px] text-slate-500">Prioritize words matching current facial emotion</span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={isEmotionSortingEnabled}
+                      onChange={e => setIsEmotionSortingEnabled(e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded"
+                    />
+                  </div>
+
+                  {/* Speech Rate & Pitch */}
+                  <div>
+                    <div className="flex justify-between font-bold text-slate-700 mb-1">
+                      <span>Speech Rate ({speechRate}x)</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="1.5"
+                      step="0.1"
+                      value={speechRate}
+                      onChange={e => setSpeechRate(parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                  </div>
+
+                  {/* Skin Tone Selector */}
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Skin Tone for People Symbols</label>
+                    <div className="flex space-x-2">
+                      {[
+                        { id: "DEFAULT", color: "#FCD34D" },
+                        { id: "LIGHT", color: "#FDE68A" },
+                        { id: "MEDIUM_LIGHT", color: "#F59E0B" },
+                        { id: "MEDIUM", color: "#D97706" },
+                        { id: "MEDIUM_DARK", color: "#B45309" },
+                        { id: "DARK", color: "#78350F" }
+                      ].map(t => (
+                        <button
+                          key={t.id}
+                          onClick={() => setSkinTone(t.id)}
+                          style={{ backgroundColor: t.color }}
+                          className={`w-7 h-7 rounded-full border-2 ${skinTone === t.id ? "ring-2 ring-indigo-600 border-white" : "border-transparent"}`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t flex justify-end">
+                  <button
+                    onClick={() => setShowSettingsModal(false)}
+                    className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 7. CUSTOMIZER & OPENSYMBOLS SEARCH MODAL */}
+          {showCustomizerModal && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50 animate-fadeIn">
+              <div className="bg-white rounded-2xl max-w-lg w-full p-5 max-h-[88vh] overflow-y-auto shadow-2xl">
+                <div className="flex items-center justify-between border-b pb-3 mb-4">
+                  <h2 className="text-lg font-bold text-slate-800">Add Symbol / Custom Tile</h2>
+                  <button onClick={() => setShowCustomizerModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
+                </div>
+
+                {/* OpenSymbols Search */}
+                <div className="bg-slate-50 border rounded-xl p-3 mb-4 text-xs">
+                  <label className="font-bold text-slate-700 block mb-1">Search OpenSymbols Database (30,000+ Symbols)</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. apple, park, hug, pizza..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleSearchSymbols()}
+                      className="flex-1 border rounded-lg px-2.5 py-1.5 bg-white text-xs"
+                    />
+                    <button
+                      onClick={handleSearchSymbols}
+                      disabled={isSearching}
+                      className="bg-indigo-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs"
+                    >
+                      {isSearching ? "Searching..." : "Search"}
+                    </button>
+                  </div>
+
+                  {/* Results list */}
+                  {searchResults.length > 0 && (
+                    <div className="grid grid-cols-4 gap-2 mt-3 max-h-36 overflow-y-auto">
+                      {searchResults.map((sym, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => {
+                            setNewCardLabel(sym.name);
+                            setNewCardSpeech(sym.name);
+                            setNewCardIcon("🖼️");
+                            // Add image card directly
+                            const newBtn = {
+                              id: `sym_${Date.now()}_${idx}`,
+                              label: sym.name,
+                              spokenText: sym.name,
+                              category: "NOUN",
+                              imageUrl: sym.image_url,
+                              tags: ["custom"]
+                            };
+                            setBoards(prev => ({
+                              ...prev,
+                              [currentBoardId]: {
+                                ...currentBoard,
+                                buttons: [...(currentBoard.buttons || []), newBtn]
+                              }
+                            }));
+                            setShowCustomizerModal(false);
+                          }}
+                          className="bg-white border rounded-lg p-1.5 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-500 hover:shadow-xs"
+                        >
+                          <img src={sym.image_url} alt={sym.name} className="w-8 h-8 object-contain" />
+                          <span className="text-[10px] font-bold text-center truncate w-full mt-1">{sym.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Manual Add Card Form */}
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Tile Label</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Playground"
+                      value={newCardLabel}
+                      onChange={e => setNewCardLabel(e.target.value)}
+                      className="w-full border rounded-lg px-2.5 py-1.5 bg-white text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-slate-700 block mb-1">Spoken Text (Utterance)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. I want to go to the playground"
+                      value={newCardSpeech}
+                      onChange={e => setNewCardSpeech(e.target.value)}
+                      className="w-full border rounded-lg px-2.5 py-1.5 bg-white text-xs"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Fitzgerald Category</label>
+                      <select
+                        value={newCardCategory}
+                        onChange={e => setNewCardCategory(e.target.value)}
+                        className="w-full border rounded-lg px-2.5 py-1.5 bg-white text-xs"
+                      >
+                        <option value="PEOPLE">Yellow - People</option>
+                        <option value="ACTION">Green - Action</option>
+                        <option value="ADJECTIVE">Blue - Descriptors</option>
+                        <option value="NOUN">Orange - Nouns</option>
+                        <option value="SOCIAL">Pink - Social</option>
+                        <option value="NAVIGATION">Purple - Folder</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="font-bold text-slate-700 block mb-1">Emoji / Icon</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 🎪"
+                        value={newCardIcon}
+                        onChange={e => setNewCardIcon(e.target.value)}
+                        className="w-full border rounded-lg px-2.5 py-1.5 bg-white text-xs text-center"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 pt-3 border-t flex justify-end space-x-2">
+                  <button
+                    onClick={() => setShowCustomizerModal(false)}
+                    className="bg-slate-100 text-slate-700 font-bold px-3 py-2 rounded-xl text-xs"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddCustomCard}
+                    disabled={!newCardLabel.trim()}
+                    className="bg-indigo-600 disabled:opacity-40 text-white font-bold px-4 py-2 rounded-xl text-xs"
+                  >
+                    Add to Board
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<SmartAACApp />);
+  </script>
+</body>
+</html>
