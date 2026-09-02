@@ -30,6 +30,7 @@ import com.example.data.model.PartOfSpeech
 import com.example.data.model.PhraseHistory
 import com.example.data.model.PresetBoards
 import com.example.data.model.SemanticTag
+import com.example.data.vision.FacialAACState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -136,6 +137,126 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
 
     private val _isGrammarFilterEnabled = MutableStateFlow(true)
     val isGrammarFilterEnabled: StateFlow<Boolean> = _isGrammarFilterEnabled.asStateFlow()
+
+    // Facial Vision & Emotion State
+    private val _facialState = MutableStateFlow(FacialAACState())
+    val facialState: StateFlow<FacialAACState> = _facialState.asStateFlow()
+
+    private val _isFacialTrackingEnabled = MutableStateFlow(true)
+    val isFacialTrackingEnabled: StateFlow<Boolean> = _isFacialTrackingEnabled.asStateFlow()
+
+    private val _visionStatus = MutableStateFlow("Ready")
+    val visionStatus: StateFlow<String> = _visionStatus.asStateFlow()
+
+    private val _calibratedBaselineJson = MutableStateFlow("")
+    val calibratedBaselineJson: StateFlow<String> = _calibratedBaselineJson.asStateFlow()
+
+    fun toggleFacialTracking(enabled: Boolean? = null) {
+        _isFacialTrackingEnabled.value = enabled ?: !_isFacialTrackingEnabled.value
+    }
+
+    fun onVisionStatus(status: String) {
+        _visionStatus.value = status
+    }
+
+    fun onBaselineCalibrated(json: String) {
+        _calibratedBaselineJson.value = json
+        _visionStatus.value = "Calibrated"
+    }
+
+    fun onFacialEvent(
+        trigger: String,
+        progress: Float,
+        isFired: Boolean,
+        emotion: String,
+        confidence: Float,
+        eyeOpenness: Float = 1f,
+        mouthOpenness: Float = 1f,
+        browFurrow: Float = 0f,
+        browRaise: Float = 0f,
+        smileScore: Float = 0f
+    ) {
+        _facialState.value = FacialAACState(
+            trigger = trigger,
+            progress = progress,
+            isFired = isFired,
+            dominantEmotion = emotion,
+            emotionConfidence = confidence,
+            eyeOpenness = eyeOpenness,
+            mouthOpenness = mouthOpenness,
+            browFurrow = browFurrow,
+            browRaise = browRaise,
+            smileScore = smileScore,
+            isTrackingActive = _isFacialTrackingEnabled.value
+        )
+
+        // Adaptive vocabulary suggestions based on sustained emotional detection
+        if (confidence >= 0.65f && _sentence.value.isEmpty()) {
+            when (emotion) {
+                "happy" -> {
+                    _suggestedNextWords.value = listOf("happy", "like", "play", "good", "more")
+                }
+                "sad", "angry", "fearful", "disgusted" -> {
+                    _suggestedNextWords.value = listOf("help", "tired", "stop", "bad", "hurt")
+                }
+            }
+        }
+
+        // Handle confirmed switch triggers upon dwell completion
+        if (isFired && _isFacialTrackingEnabled.value) {
+            when (trigger) {
+                "BROW_RAISE_CONFIRM" -> {
+                    if (_sentence.value.isNotEmpty()) {
+                        val text = _sentence.value.joinToString(" ") { it.spokenText }
+                        speakSentence(text)
+                    } else if (_suggestedNextWords.value.isNotEmpty()) {
+                        // Select first suggested word
+                        val firstWord = _suggestedNextWords.value.first()
+                        onButtonTapped(
+                            AACButton(
+                                id = "facial_word_${System.currentTimeMillis()}",
+                                label = firstWord,
+                                spokenText = firstWord,
+                                category = FitzgeraldCategory.SOCIAL,
+                                partOfSpeech = PartOfSpeech.SOCIAL,
+                                semanticTags = setOf(SemanticTag.GENERAL)
+                            )
+                        )
+                    }
+                }
+                "MOUTH_OPEN_SELECT" -> {
+                    if (_suggestedNextWords.value.isNotEmpty()) {
+                        val word = _suggestedNextWords.value.first()
+                        onButtonTapped(
+                            AACButton(
+                                id = "facial_mouth_${System.currentTimeMillis()}",
+                                label = word,
+                                spokenText = word,
+                                category = FitzgeraldCategory.ACTION,
+                                partOfSpeech = PartOfSpeech.VERB_ACTION,
+                                semanticTags = setOf(SemanticTag.ACTION_CORE)
+                            )
+                        )
+                    }
+                }
+                "SUSTAINED_SMILE" -> {
+                    // Navigate to Feelings / Social board
+                    navigateToFolder("sub_feelings")
+                }
+                "SUSTAINED_FROWN" -> {
+                    // Navigate to Actions / Needs board
+                    navigateToFolder("sub_actions")
+                }
+                "LONG_BLINK_CANCEL" -> {
+                    if (_sentence.value.isNotEmpty()) {
+                        removeLastFromSentence()
+                    } else if (previousBoardAvailable.value) {
+                        navigateBack()
+                    }
+                }
+            }
+        }
+    }
 
     fun setCardDisplayMode(mode: CardDisplayMode) {
         _cardDisplayMode.value = mode
@@ -424,7 +545,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
         }
     }
 
-    // AI Smart Elaborator (uses High Thinking gemini-3.1-pro-preview)
+    // Elaborates AAC words into a complete natural sentence
     fun elaborateSentence() {
         val currentWords = _sentence.value.joinToString(" ") { it.label }
         if (currentWords.isBlank()) return
@@ -437,7 +558,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
                     contents = listOf(
                         GeminiContent(
                             parts = listOf(
-                                GeminiPart(text = "The raw AAC icons clicked are: '$currentWords'. Please translate these communication icons into an articulate, natural first-person conversational sentence. Keep it expressive yet direct, suitable for an autistic user communicating their primary need or state.")
+                                GeminiPart(text = "Convert these AAC words into one natural first-person sentence: '$currentWords'")
                             )
                         )
                     ),
@@ -455,7 +576,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
             } catch (e: Exception) {
                 Log.e("AACViewModel", "Sentence elaboration failed: ${e.message}")
                 withContext(Dispatchers.Main) {
-                    _aiElaboratedText.value = "Fallback: " + _sentence.value.joinToString(" ") { it.spokenText }
+                    _aiElaboratedText.value = _sentence.value.joinToString(" ") { it.spokenText }
                 }
             } finally {
                 withContext(Dispatchers.Main) {
@@ -465,7 +586,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
         }
     }
 
-    // AI Dialog (uses High Thinking gemini-3.1-pro-preview)
+    // AI companion conversation response
     fun chatWithAI() {
         val currentWords = _sentence.value.joinToString(" ") { it.label }
         if (currentWords.isBlank()) return
@@ -478,7 +599,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
                     contents = listOf(
                         GeminiContent(
                             parts = listOf(
-                                GeminiPart(text = "User communicated using AAC icons: '$currentWords'. Respond as a kind, therapeutic companion assisting the autistic individual. Keep your reply simple (1-2 sentences), affirming, and clear.")
+                                GeminiPart(text = "The user said: '$currentWords'. Reply in 1-2 friendly, helpful sentences.")
                             )
                         )
                     ),
@@ -508,7 +629,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
 
     private var suggestionsJob: Job? = null
 
-    // Suggests 3 logical single-phrase concept next clicks based on recent words (uses fast model + local fallback on rate-limit/offline)
+    // Suggests 3 logical next words based on current sentence
     private fun triggerNextWordSuggestions() {
         suggestionsJob?.cancel()
 
@@ -521,7 +642,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
         val localFallbacks = com.example.data.model.GrammarEngine.getNextWordSuggestions(_sentence.value)
 
         suggestionsJob = viewModelScope.launch(Dispatchers.IO) {
-            delay(450) // Debounce rapid button taps to avoid API rate limiting
+            delay(450)
             try {
                 val apiKey = BuildConfig.GEMINI_API_KEY
                 if (apiKey.isBlank()) {
@@ -535,7 +656,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
                     contents = listOf(
                         GeminiContent(
                             parts = listOf(
-                                GeminiPart(text = "Based on these active AAC symbols: '$currentWords', what are 3 single logical words or short terms that the user is most likely to tap next? List only the 3 words separated by commas, with no other text.")
+                                GeminiPart(text = "Given sentence prefix: '$currentWords', return 3 likely next words separated by commas only.")
                             )
                         )
                     ),
@@ -554,7 +675,6 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
                     _suggestedNextWords.value = if (suggestions.isNotEmpty()) suggestions else localFallbacks
                 }
             } catch (e: Exception) {
-                // HTTP 429 rate limits or network issues: fall back seamlessly to local grammar engine
                 withContext(Dispatchers.Main) {
                     _suggestedNextWords.value = localFallbacks
                 }
@@ -562,7 +682,7 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
         }
     }
 
-    // Uses High Thinking model to design a brand new 12-button communication board for any custom topic
+    // Creates a new 12-button communication board for any topic
     fun generateCustomBoard(topic: String, onFinished: (Boolean) -> Unit) {
         if (topic.isBlank()) return
         _aiLoading.value = true
@@ -571,16 +691,10 @@ class AACViewModel(application: Application) : AndroidViewModel(application), Te
             try {
                 val apiKey = BuildConfig.GEMINI_API_KEY
                 val schemaPrompt = """
-                    Design a custom 3x4 (12 cards) AAC communication board on the theme: '$topic'.
-                    Respond ONLY with a valid JSON array of exactly 12 items. Each item must have:
-                    - "id": String (unique e.g. 'c_dentist_chair')
-                    - "label": String (1-2 clear words)
-                    - "spokenText": String (label text spoken aloud)
-                    - "category": String, MUST be one of: PEOPLE, ACTION, NOUN, ADJECTIVE, SOCIAL, or FUNCTION.
-                    - "type": "WORD"
-                    - "imageUrl": String of a public schematic svg or png icon or leave null.
-                    - "targetBoardId": null
-                    Ensure no formatting other than pure raw JSON.
+                    Create a 12-button AAC board for topic: '$topic'.
+                    Return ONLY a JSON array of 12 objects:
+                    [{"id":"btn_1","label":"Word","spokenText":"Word","category":"ACTION","type":"WORD","imageUrl":null,"targetBoardId":null}]
+                    Category must be one of: PEOPLE, ACTION, NOUN, ADJECTIVE, SOCIAL, FUNCTION.
                 """.trimIndent()
 
                 val request = GeminiRequest(

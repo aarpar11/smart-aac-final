@@ -1,6 +1,8 @@
 {
   "name": "Smart AAC",
   "description": "An augmentative and alternative communication (AAC) app for autistic individuals, based on Vocal Flair layout with OpenSymbols integrations and Gemini natural speech synthesis.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "camera"
+  ],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

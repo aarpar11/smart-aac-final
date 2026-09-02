@@ -55,6 +55,7 @@ import com.example.data.model.Board
 import com.example.data.model.ButtonType
 import com.example.data.model.FitzgeraldCategory
 import com.example.data.model.PresetBoards
+import com.example.ui.components.FacialVisionOverlay
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AACViewModel by viewModels()
@@ -109,6 +110,7 @@ fun AACMainScreen(
     val selectedSkinTone by viewModel.selectedSkinTone.collectAsStateWithLifecycle()
     val speakOnTileTap by viewModel.speakOnTileTap.collectAsStateWithLifecycle()
     val isGrammarFilterEnabled by viewModel.isGrammarFilterEnabled.collectAsStateWithLifecycle()
+    val isFacialTrackingEnabled by viewModel.isFacialTrackingEnabled.collectAsStateWithLifecycle()
 
     // Dialog state controllers
     var isEditMode by remember { mutableStateOf(false) }
@@ -125,7 +127,6 @@ fun AACMainScreen(
             .fillMaxSize()
             .background(if (isHighContrast) Color(0xFF121212) else Color(0xFFF7F9FC))
     ) {
-        // --- 1. Top Header Utility Bar ---
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -154,7 +155,6 @@ fun AACMainScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // density layout toggle
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     IconButton(
                         onClick = { viewModel.setBoardDensity(!isSimpleDensity) },
@@ -173,7 +173,6 @@ fun AACMainScreen(
                     Text("Grid Size", fontSize = 9.sp, fontWeight = FontWeight.Medium, color = Color(0xFF475569))
                 }
 
-                // Customizer drawer trigger (Add Card)
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     IconButton(
                         onClick = { showBoardCustomizerDialog = true },
@@ -193,7 +192,6 @@ fun AACMainScreen(
                     Text("Add Card", fontSize = 9.sp, fontWeight = FontWeight.Medium, color = Color(0xFF475569))
                 }
 
-                // Settings drawer trigger
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     IconButton(
                         onClick = { showSettingsDialog = true },
@@ -215,7 +213,8 @@ fun AACMainScreen(
             }
         }
 
-        // --- 2. Active Sentence Composer Bar ---
+        FacialVisionOverlay(viewModel = viewModel)
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -254,21 +253,17 @@ fun AACMainScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         items(sentence) { wordBtn ->
-                            SentenceButtonComponent(button = wordBtn, onRemove = {
-                                // optional local removal
-                            })
+                            SentenceButtonComponent(button = wordBtn, onRemove = {})
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Control panel for Sentence Bar
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Backspace
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         IconButton(
                             onClick = { viewModel.removeLastFromSentence() },
@@ -287,7 +282,6 @@ fun AACMainScreen(
                         Text("Delete", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
                     }
 
-                    // Clear All
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         IconButton(
                             onClick = { viewModel.clearSentence() },
@@ -306,7 +300,6 @@ fun AACMainScreen(
                         Text("Clear", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B))
                     }
 
-                    // Save Phrase to Saved Folder
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         IconButton(
                             onClick = {
@@ -332,7 +325,6 @@ fun AACMainScreen(
                         Text("Save", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (sentence.isNotEmpty()) Color(0xFF10B981) else Color(0xFF94A3B8))
                     }
 
-                    // MAIN SPEAK UTTERANCE
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         IconButton(
                             onClick = {
@@ -366,7 +358,6 @@ fun AACMainScreen(
                         Text("Speak", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (sentence.isNotEmpty()) Color(0xFF4F46E5) else Color(0xFF94A3B8))
                     }
 
-                    // REPEAT LOUDER
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         IconButton(
                             onClick = {
@@ -395,7 +386,6 @@ fun AACMainScreen(
             }
         }
 
-        // --- 3. Smart Semantic Word Prediction Suggestions ---
         AnimatedVisibility(
             visible = suggestedWords.isNotEmpty(),
             enter = fadeIn() + expandVertically(),
@@ -442,7 +432,6 @@ fun AACMainScreen(
             }
         }
 
-        // --- 4. Main AAC Directory Navigation Header ---
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -486,12 +475,11 @@ fun AACMainScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Edit / Customize Mode Toggle
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     IconButton(
                         onClick = { 
                             isEditMode = !isEditMode 
-                            selectedButtonForSwap = null // Reset selection on toggle
+                            selectedButtonForSwap = null
                         },
                         modifier = Modifier
                             .background(if (isEditMode) Color(0xFF4F46E5) else Color.White, RoundedCornerShape(10.dp))
@@ -532,7 +520,6 @@ fun AACMainScreen(
             }
         }
 
-        // --- 4b. Edit Mode Guidance Banner ---
         if (isEditMode) {
             Card(
                 modifier = Modifier
@@ -716,7 +703,6 @@ fun AACMainScreen(
         }
     }
 
-    // --- DIALOG 1: Settings / Display Preferences & Speech Voices ---
     if (showSettingsDialog) {
         Dialog(onDismissRequest = { showSettingsDialog = false }) {
             Card(
@@ -753,7 +739,6 @@ fun AACMainScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // SECTION 1: Card Content Display Mode
                     Text(
                         text = "Tile Content Mode",
                         fontWeight = FontWeight.Bold,
@@ -816,7 +801,6 @@ fun AACMainScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // SECTION 2: Text Placement Position
                     if (cardDisplayMode == CardDisplayMode.BOTH) {
                         Text(
                             text = "Text Label Placement",
@@ -867,7 +851,6 @@ fun AACMainScreen(
                         Spacer(modifier = Modifier.height(16.dp))
                     }
 
-                    // SECTION 2.5: Speak Word on Card / Folder Tap Toggle
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -909,7 +892,6 @@ fun AACMainScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // SECTION 2.5: Smart Predictive Grammar Filter
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -993,7 +975,6 @@ fun AACMainScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // SECTION 4: Skin Tone Selector (5 Tones)
                     Text(
                         text = "Skin Tone for People Symbols (5 Tones)",
                         fontWeight = FontWeight.Bold,
@@ -1057,7 +1038,6 @@ fun AACMainScreen(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // SECTION 5: Speech Synthesis Settings
                     Text(
                         text = "Speech Synthesis Engine",
                         fontWeight = FontWeight.Bold,
@@ -1151,6 +1131,50 @@ fun AACMainScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Text(
+                        text = "Facial Vision & Expression Switch",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color(0xFF334155),
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFF8FAFC))
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Enable Facial Action Tracking",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF1E293B)
+                            )
+                            Text(
+                                text = "Use brow raise, smile, mouth open & blink as hands-free AAC triggers",
+                                fontSize = 10.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                        Switch(
+                            checked = isFacialTrackingEnabled,
+                            onCheckedChange = { viewModel.toggleFacialTracking(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF4F46E5)
+                            )
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { showSettingsDialog = false },
@@ -1165,9 +1189,6 @@ fun AACMainScreen(
         }
     }
 
-
-
-    // --- DIALOG 3: System Customizer (symbols search, Board modifications) ---
     if (showBoardCustomizerDialog) {
         Dialog(onDismissRequest = { showBoardCustomizerDialog = false }) {
             Card(
@@ -1201,7 +1222,6 @@ fun AACMainScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Subsection A: Searching via OpenSymbols
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1271,7 +1291,6 @@ fun AACMainScreen(
                                             .background(Color.White)
                                             .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(8.dp))
                                             .clickable {
-                                                // Create element
                                                 val btn = AACButton(
                                                     id = "search_${System.currentTimeMillis()}",
                                                     label = name,
@@ -1319,7 +1338,6 @@ fun AACMainScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Subsection B: Adding Custom Button to Board
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1360,7 +1378,6 @@ fun AACMainScreen(
                             shape = RoundedCornerShape(8.dp)
                         )
                         
-                        // AI Icon Generator Button ✨
                         Button(
                             onClick = {
                                 if (customButtonName.isNotBlank()) {
